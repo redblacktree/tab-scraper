@@ -26,6 +26,9 @@ Install Python 3 and pip. Create a virtualenv and activate it. Install requireme
       -s, --save-source-data
                             Save source data files for debugging (warning: large
                             files -- 3-6MB each)
+      -r RACE_TYPE, --race-type RACE_TYPE
+                            Possible values: HORSE_RACING, HARNESS_RACING,
+                            GREYHOUNDS (defaults to HORSE_RACING)
       -v, --verbose         Verbosity (-v, -vv, etc)
       --version             show program's version number and exit
 
@@ -43,6 +46,9 @@ Install Python 3 and pip. Create a virtualenv and activate it. Install requireme
       -s, --save-source-data
                             Save source data files for debugging (warning: large
                             files -- 3-6MB each)
+      -r RACE_TYPE, --race-type RACE_TYPE
+                            Possible values: HORSE_RACING, HARNESS_RACING,
+                            GREYHOUNDS (defaults to HORSE_RACING)
       -v, --verbose         Verbosity (-v, -vv, etc)
       --version             show program's version number and exit
       

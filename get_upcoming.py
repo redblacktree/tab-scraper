@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from copy import copy
+
 __author__ = "Dustin Rasener"
 __version__ = "0.1.0"
 __license__ = "Proprietary"
@@ -15,7 +17,7 @@ try:
     MonkeyPatch.patch_fromisoformat()
 except ImportError:
     pass
-from common import map_data, format_data, get_cloudfare_cookie, COMMON_HEADERS
+from common import map_data, format_data, get_cloudfare_cookie, COMMON_HEADERS, RACE_TYPES
 
 logfile("/tmp/get-upcoming.log", maxBytes=int(1e6), backupCount=10)
 
@@ -35,31 +37,46 @@ UPCOMING_RACE_DATA_MAPPING = {
     "track": "race.track.name",
     "weather": "race.weather",
     "event time": "startTime",
-    "event name": "meeting.name",
+    "event name": "race.name",
     "distance": "race.distance.distance",
     "prize pool": "race.stake"
 }
 UPCOMING_RACE_FORMAT_RULES = {
     "iso date": lambda x: x.replace("Z", "+00:00"),
     "meeting number": lambda x: f"M{x}",
-    "track": lambda x: x[:10]
+    "track": lambda x: x[:10],
+    "type": lambda x: RACE_TYPES[x]
 }
-UPCOMING_RACE_GROUP_MAPPING = {
+UPCOMING_RACE_GROUP_MAPPINGS = {"COMMON": {
     "silk": "raceDetails.silkImageUri",
     "form": "lastFivePlacings",
     "position": "raceDetails.number",
     "name": "name",
-    "barrier": "raceDetails.barrier",
-    "jockey": "raceDetails.jockey.name",
-    "jockey weight": "raceDetails.handicap",
     "trainer": "raceDetails.trainer.name",
     "scratched": "raceDetails.scratched"
+}}
+UPCOMING_RACE_GROUP_MAPPINGS["HORSE_RACING"] = copy(UPCOMING_RACE_GROUP_MAPPINGS["COMMON"])
+UPCOMING_RACE_GROUP_MAPPINGS["HORSE_RACING"].update({
+    "barrier": "raceDetails.barrier",
+    "jockey": "raceDetails.jockey.name",
+    "jockey weight": "raceDetails.handicap"
+})
+UPCOMING_RACE_GROUP_MAPPINGS["HARNESS_RACING"] = copy(UPCOMING_RACE_GROUP_MAPPINGS["COMMON"])
+UPCOMING_RACE_GROUP_MAPPINGS["HARNESS_RACING"].update({
+    "barrier": "raceDetails.barrier",
+    "position": "raceDetails.barrier",
+    "driver": "raceDetails.jockey.name",
+    "handicap": "raceDetails.handicap"
+})
+UPCOMING_RACE_GROUP_FORMAT_RULES = {
+    "handicap": lambda x: "" if x == "fr" else x
 }
+UPCOMING_RACE_GROUP_MAPPINGS["GREYHOUNDS"] = copy(UPCOMING_RACE_GROUP_MAPPINGS["COMMON"])
 EVENT_LIST_URL = "https://content.tab.co.nz/content-service/api/v1/q/event-list?started=false&relativeMeetingOffsetDays={offset_days}&excludeResultedEvents=false&excludeExpiredMarkets=false&excludeSettledEvents=false&includeRace=true&includeMedia=true&includePools=true&drilldownTagIds=18%2C19%2C38"
 EVENT_INFO_URL = "https://content.tab.co.nz/content-service/api/v1/q/events-by-ids?eventIds={event_ids}&includeChildMarkets=true&includeCollections=false&includePriceHistory=true&includeCommentary=false&includeIncidents=false&includeRace=true&includeMedia=true&includePools=true"
 
 
-def get_upcoming_event_list(cloudfare_cookie, locations=None, offset_days=0):
+def get_upcoming_event_list(cloudfare_cookie, locations=None, offset_days=0, race_type="HORSE_RACING"):
     if locations is None:
         logger.warning('get_event_list: No locations specified. Event list will return no results.')
         locations = []
@@ -70,7 +87,7 @@ def get_upcoming_event_list(cloudfare_cookie, locations=None, offset_days=0):
     return [x for x in events if "class" in x and "name" in x["class"]
             and x["class"]["name"] in locations
             and "category" in x and "code" in x["category"]
-            and x["category"]["code"] == "HORSE_RACING"]
+            and x["category"]["code"] == race_type]
 
 
 def get_odds(event_info, horse_name, price_type="WIN_POOL"):
@@ -90,7 +107,7 @@ def get_odds(event_info, horse_name, price_type="WIN_POOL"):
     return str(win_pool["decimal"])
 
 
-def get_event_info(cloudfare_cookie, event_id, save_source=False, output_dir="."):
+def get_event_info(cloudfare_cookie, event_id, save_source=False, output_dir=".", race_type="HORSE_RACING"):
     event_info = requests.get(url=EVENT_INFO_URL.format(event_ids=event_id),
                               headers=COMMON_HEADERS.update({'__cfduid': cloudfare_cookie})).json()
     if save_source:
@@ -99,15 +116,17 @@ def get_event_info(cloudfare_cookie, event_id, save_source=False, output_dir="."
             json.dump(event_info, debugfile, indent=4)
     event_info = event_info['data']['events'][0]
     mapped_event_info = map_data(event_info, mapping=UPCOMING_RACE_DATA_MAPPING)
+    mapped_event_info['type'] = race_type
     format_data(mapped_event_info, UPCOMING_RACE_FORMAT_RULES)
     mapped_event_info['group'] = []
     for runner in event_info['race']['runners']:
-        runner_info = map_data(runner, mapping=UPCOMING_RACE_GROUP_MAPPING)
+        runner_info = map_data(runner, mapping=UPCOMING_RACE_GROUP_MAPPINGS[race_type])
         win_odds = get_odds(event_info, runner["name"], price_type="LP")
         runner_info["indicative odds"] = win_odds
         tote_odds = get_odds(event_info, runner["name"], price_type="WIN_POOL")
         runner_info["tote_odds"] = tote_odds
-        if runner_info["scratched"] != "True":
+        format_data(runner_info, UPCOMING_RACE_GROUP_FORMAT_RULES)
+        if str(runner_info["scratched"]).lower() != "true":
             mapped_event_info['group'].append(runner_info)
     mapped_event_info['group'] = sorted(mapped_event_info['group'], key=lambda x: x['position'])
     return mapped_event_info
@@ -118,7 +137,7 @@ def main(args):
     cloudfare_cookie = get_cloudfare_cookie()
     os.makedirs(args.output_dir, exist_ok=True)
     locations = ["New Zealand", "Australia"]
-    upcoming_events = get_upcoming_event_list(cloudfare_cookie, locations, args.offset_days)
+    upcoming_events = get_upcoming_event_list(cloudfare_cookie, locations, args.offset_days, args.race_type)
     event_ids = [x["id"] for x in upcoming_events]
     logger.info("Found {n} events, with IDs {ids}".format(n=len(upcoming_events),
                                                           ids=event_ids))
@@ -126,8 +145,9 @@ def main(args):
         time.sleep(0.5)  # Be a good citizen - avoid throttling by limiting request frequency
         event_info = [get_event_info(cloudfare_cookie, event_id,
                                      save_source=args.save_source,
-                                     output_dir=args.output_dir)]
-        filename = f"data-{event_info[0]['meeting number']}-" \
+                                     output_dir=args.output_dir,
+                                     race_type=args.race_type)]
+        filename = f"{RACE_TYPES[args.race_type].lower()}-{event_info[0]['meeting number']}-" \
                    f"{event_info[0]['track'].replace(' ', '_')}" \
                    f"-R{event_info[0]['race number']}.json"
         filename = os.path.join(args.output_dir, filename)
@@ -145,6 +165,8 @@ if __name__ == "__main__":
                         help="Days in the future to get race info for. 0=today e.g. 1=tomorrow (defaults to today)")
     parser.add_argument("-s", "--save-source-data", action="store_true", dest="save_source", default=False,
                         help="Save source data files for debugging (warning: large files -- 3-6MB each)")
+    parser.add_argument("-r", "--race-type", action="store", dest="race_type", default="HORSE_RACING",
+                        help="Possible values: HORSE_RACING, HARNESS_RACING, GREYHOUNDS (defaults to HORSE_RACING)")
 
     # Optional verbosity counter (eg. -v, -vv, -vvv, etc.)
     parser.add_argument(

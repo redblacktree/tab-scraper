@@ -15,6 +15,12 @@ COMMON_HEADERS = {
     "Connection": "keep-alive"
 }
 
+RACE_TYPES = {
+    "HORSE_RACING": "Thoroughbred",
+    "HARNESS_RACING": "Harness",
+    "GREYHOUNDS": "Greyhound"
+}
+
 
 def get_cloudfare_cookie():
     """ Cloudfare uses cookies to identify users. Get a new cookie for each run of the script
