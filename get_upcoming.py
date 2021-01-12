@@ -34,7 +34,7 @@ UPCOMING_RACE_DATA_MAPPING = {
     "meeting number": "race.meetingNumber",
     "meeting place": "meeting.name",
     "race number": "raceNumber",
-    "track": "race.track.name",
+    "track": "race.trackCondition",
     "weather": "race.weather",
     "event time": "startTime",
     "event name": "race.name",
