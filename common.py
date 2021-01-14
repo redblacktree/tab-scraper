@@ -1,6 +1,6 @@
 import requests
 from logzero import logger
-import operator
+import sys
 from copy import deepcopy
 
 COMMON_HEADERS = {
@@ -62,5 +62,9 @@ def map_data(source_data, mapping):
 def format_data(data, format_rules):
     for key, rule in format_rules.items():
         if key in data:
-            data[key] = rule(data[key])
+            try:
+                data[key] = rule(data[key])
+            except Exception as e:
+                logger.error(f"Error while formatting: {sys.exc_info()[0]}")
+                logger.exception(e)
     return data

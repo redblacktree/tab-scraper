@@ -8,8 +8,8 @@ __license__ = "Proprietary"
 import argparse
 import json
 import os
+import sys
 import time
-from datetime import datetime
 import requests
 from logzero import logger, loglevel, logfile
 try:
@@ -44,7 +44,6 @@ UPCOMING_RACE_DATA_MAPPING = {
 UPCOMING_RACE_FORMAT_RULES = {
     "iso date": lambda x: x.replace("Z", "+00:00"),
     "meeting number": lambda x: f"M{x}",
-    "track": lambda x: x[:10],
     "type": lambda x: RACE_TYPES[x]
 }
 UPCOMING_RACE_GROUP_MAPPINGS = {"COMMON": {
@@ -138,22 +137,29 @@ def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
     locations = ["New Zealand", "Australia"]
     upcoming_events = get_upcoming_event_list(cloudfare_cookie, locations, args.offset_days, args.race_type)
-    event_ids = [x["id"] for x in upcoming_events]
+    if args.event_id is None:
+        event_ids = [x["id"] for x in upcoming_events]
+    else:
+        event_ids = [args.event_id]
     logger.info("Found {n} events, with IDs {ids}".format(n=len(upcoming_events),
                                                           ids=event_ids))
     for i, event_id in enumerate(event_ids):
-        time.sleep(0.5)  # Be a good citizen - avoid throttling by limiting request frequency
-        event_info = [get_event_info(cloudfare_cookie, event_id,
-                                     save_source=args.save_source,
-                                     output_dir=args.output_dir,
-                                     race_type=args.race_type)]
-        filename = f"{RACE_TYPES[args.race_type].lower()}-{event_info[0]['meeting number']}-" \
-                   f"{event_info[0]['track'].replace(' ', '_')}" \
-                   f"-R{event_info[0]['race number']}.json"
-        filename = os.path.join(args.output_dir, filename)
-        with open(filename, "w") as outfile:
-            logger.info(f"Race {i+1} of {len(event_ids)}. Writing file {filename}.")
-            json.dump(event_info, outfile, indent=4)
+        try:
+            time.sleep(0.5)  # Be a good citizen - avoid throttling by limiting request frequency
+            event_info = [get_event_info(cloudfare_cookie, event_id,
+                                         save_source=args.save_source,
+                                         output_dir=args.output_dir,
+                                         race_type=args.race_type)]
+            filename = f"{RACE_TYPES[args.race_type].lower()}-{event_info[0]['meeting number']}-" \
+                       f"{str(event_info[0]['track']).replace(' ', '_')}" \
+                       f"-R{event_info[0]['race number']}.json"
+            filename = os.path.join(args.output_dir, filename)
+            with open(filename, "w") as outfile:
+                logger.info(f"Race {i+1} of {len(event_ids)}. Writing file {filename}.")
+                json.dump(event_info, outfile, indent=4)
+        except Exception as e:
+            logger.error(f"Error while importing upcoming event id {event_id}: {sys.exc_info()[0]}")
+            logger.exception(e)
 
 
 if __name__ == "__main__":
@@ -167,6 +173,9 @@ if __name__ == "__main__":
                         help="Save source data files for debugging (warning: large files -- 3-6MB each)")
     parser.add_argument("-r", "--race-type", action="store", dest="race_type", default="HORSE_RACING",
                         help="Possible values: HORSE_RACING, HARNESS_RACING, GREYHOUNDS (defaults to HORSE_RACING)")
+    parser.add_argument("-e", "--event-id", action="store", dest="event_id", default=None,
+                        help="Specify an integer event ID to import a single race. "
+                             "(intended for debugging - overrides other event selection parameters)")
 
     # Optional verbosity counter (eg. -v, -vv, -vvv, etc.)
     parser.add_argument(
