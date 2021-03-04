@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from copy import copy
+from json import JSONDecodeError
 
 __author__ = "Dustin Rasener"
 __version__ = "0.1.0"
@@ -81,7 +82,10 @@ def get_upcoming_event_list(cloudfare_cookie, locations=None, offset_days=0, rac
         locations = []
     event_list = requests.get(url=EVENT_LIST_URL.format(offset_days=offset_days),
                               headers=COMMON_HEADERS.update({'__cfduid': cloudfare_cookie}))
-    event_list_json = event_list.json()
+    try:
+        event_list_json = event_list.json()
+    except JSONDecodeError:
+        logger.error(f'Unable to decode JSON from response: {event_list}')
     events = event_list_json['data']['events']
     return [x for x in events if "class" in x and "name" in x["class"]
             and x["class"]["name"] in locations
@@ -151,7 +155,7 @@ def main(args):
                                          output_dir=args.output_dir,
                                          race_type=args.race_type)]
             filename = f"{RACE_TYPES[args.race_type].lower()}-{event_info[0]['meeting number']}-" \
-                       f"{str(event_info[0]['track']).replace(' ', '_')}" \
+                       f"{str(event_info[0]['meeting place']).replace(' ', '_')}" \
                        f"-R{event_info[0]['race number']}.json"
             filename = os.path.join(args.output_dir, filename)
             with open(filename, "w") as outfile:
